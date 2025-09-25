@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block title %}Decrypt PDF - PDFCrypto{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in py-12">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="text-center mb-12">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-2xl mb-6">
+                <svg class="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
+                Decrypt Your PDF
+            </h1>
+            <p class="text-lg text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+                Restore your encrypted PDF file using the same password you used for encryption.
+            </p>
+        </div>
+
+        <!-- Decryption Form -->
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700">
+            <form id="decryptForm" 
+                  x-data="decryptApp()" 
+                  @submit.prevent="decryptFile()"
+                  class="p-8">
+                
+                <!-- File Upload Area -->
+                <div class="mb-8">
+                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                        Select Encrypted File (.enc)
+                    </label>
+                    
+                    <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center hover:border-primary-400 dark:hover:border-primary-500 transition-colors"
+                         :class="{ 'border-primary-500 bg-primary-50 dark:bg-primary-900/20': isDragging }"
+                         @dragover.prevent="isDragging = true"
+                         @dragleave.prevent="isDragging = false"
+                         @drop.prevent="handleFileDrop($event)">
+                        
+                        <input type="file" 
+                               id="encFile" 
+                               name="file"
+                               accept=".enc"
+                               @change="handleFileSelect($event)"
+                               class="hidden">
+                        
+                        <div x-show="!selectedFile">
+                            <svg class="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            <p class="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Drag and drop your .enc file here
+                            </p>
+                            <p class="text-gray-500 dark:text-gray-400 mb-4">
+                                or click to browse
+                            </p>
+                            <button type="button" 
+                                    @click="$refs.fileInput.click()" 
+                                    class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors">
+                                Choose File
+                            </button>
+                        </div>
+                        
+                        <div x-show="selectedFile" class="text-left">
+                            <div class="flex items-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <svg class="w-10 h-10 text-yellow-500 mr-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                                    <circle cx="12" cy="14" r="2" fill="#fff"/>
+                                </svg>
+                                <div class="flex-1">
+                                    <p class="font-medium text-gray-900 dark:text-gray-100" x-text="selectedFile?.name"></p>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400" x-text="formatFileSize(selectedFile?.size)"></p>
+                                </div>
+                                <button type="button" 
+                                        @click="clearFile()" 
+                                        class="ml-4 p-2 text-gray-400 hover:text-red-500 transition-colors">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <input type="file" x-ref="fileInput" @change="handleFileSelect($event)" accept=".enc" class="hidden">
+                    </div>
+                </div>
+
+                <!-- Password Section -->
+                <div class="mb-8">
+                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                        Decryption Password
+                    </label>
+                    
+                    <div class="relative">
+                        <input type="password" 
+                               x-model="password"
+                               x-ref="passwordInput"
+                               placeholder="Enter the password used for encryption"
+                               class="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white transition-colors"
+                               required>
+                        <button type="button" 
+                                @click="togglePasswordVisibility()" 
+                                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                            <svg x-show="!showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                            <svg x-show="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L12 12m0 0l3.122 3.122M12 12l4.242-4.242m0 0L21 3m-6.758 6.758L12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                        Use the exact same password that was used to encrypt this file.
+                    </p>
+                </div>
+
+                <!-- Decryption Button -->
+                <div class="mb-6">
+                    <button type="submit" 
+                            :disabled="!selectedFile || !password || isProcessing"
+                            class="w-full flex items-center justify-center px-6 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors">
+                        <span x-show="!isProcessing" class="flex items-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path>
+                            </svg>
+                            Decrypt PDF
+                        </span>
+                        <span x-show="isProcessing" class="flex items-center">
+                            <div class="loading-spinner mr-2"></div>
+                            Decrypting...
+                        </span>
+                    </button>
+                </div>
+
+                <!-- Progress Bar -->
+                <div x-show="isProcessing" class="mb-6">
+                    <div class="bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                        <div class="bg-blue-500 h-2 rounded-full transition-all duration-300 animate-pulse" style="width: 70%"></div>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-2 text-center">
+                        Decrypting your file securely...
+                    </p>
+                </div>
+
+                <!-- Alert Messages -->
+                <div x-show="alertMessage" x-transition class="mb-4">
+                    <div class="p-4 rounded-lg" :class="alertType === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'">
+                        <div class="flex items-center">
+                            <svg x-show="alertType === 'success'" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                            </svg>
+                            <svg x-show="alertType === 'error'" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                            </svg>
+                            <p x-text="alertMessage"></p>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Security Notice -->
+        <div class="mt-8 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-6">
+            <div class="flex items-start">
+                <svg class="w-6 h-6 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <div>
+                    <h3 class="font-semibold text-amber-800 dark:text-amber-200 mb-2">Important Notes</h3>
+                    <ul class="text-sm text-amber-700 dark:text-amber-300 space-y-1">
+                        <li>• Use the exact same password that was used for encryption</li>
+                        <li>• If the password is incorrect, decryption will fail</li>
+                        <li>• The decrypted PDF will be downloaded automatically</li>
+                        <li>• Your password and files are processed locally for security</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function decryptApp() {
+    return {
+        selectedFile: null,
+        password: '',
+        showPassword: false,
+        isProcessing: false,
+        isDragging: false,
+        alertMessage: '',
+        alertType: '',
+        
+        handleFileDrop(e) {
+            this.isDragging = false;
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.selectFile(files[0]);
+            }
+        },
+        
+        handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                this.selectFile(file);
+            }
+        },
+        
+        selectFile(file) {
+            if (!file.name.toLowerCase().endsWith('.enc')) {
+                this.showAlert('Please select an encrypted file with .enc extension.', 'error');
+                return;
+            }
+            
+            if (file.size > 50 * 1024 * 1024) { // 50MB limit
+                this.showAlert('File size must be less than 50MB.', 'error');
+                return;
+            }
+            
+            this.selectedFile = file;
+            this.clearAlert();
+        },
+        
+        clearFile() {
+            this.selectedFile = null;
+            this.$refs.fileInput.value = '';
+        },
+        
+        togglePasswordVisibility() {
+            this.showPassword = !this.showPassword;
+            const input = this.$refs.passwordInput;
+            input.type = this.showPassword ? 'text' : 'password';
+        },
+        
+        async decryptFile() {
+            if (!this.selectedFile || !this.password) return;
+            
+            this.isProcessing = true;
+            this.clearAlert();
+            
+            const formData = new FormData();
+            formData.append('file', this.selectedFile);
+            formData.append('password', this.password);
+            
+            try {
+                const response = await fetch('/api/decrypt', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = this.selectedFile.name.replace('.enc', '.pdf');
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    
+                    this.showAlert('File decrypted successfully! Download started.', 'success');
+                    this.clearFile();
+                    this.password = '';
+                } else {
+                    const errorData = await response.json();
+                    this.showAlert(errorData.error || 'Decryption failed.', 'error');
+                }
+            } catch (error) {
+                this.showAlert('Network error. Please try again.', 'error');
+            } finally {
+                this.isProcessing = false;
+            }
+        },
+        
+        formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        },
+        
+        showAlert(message, type) {
+            this.alertMessage = message;
+            this.alertType = type;
+            setTimeout(() => this.clearAlert(), 5000);
+        },
+        
+        clearAlert() {
+            this.alertMessage = '';
+            this.alertType = '';
+        }
+    }
+}
+</script>
+{% endblock %}
