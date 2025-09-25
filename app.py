@@ -10,8 +10,14 @@ from utils import PasswordGenerator
 import io
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
+
+# Production-ready configuration
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+
+# Environment detection
+FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
+DEBUG = FLASK_ENV == 'development'
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -40,19 +46,27 @@ def about():
     """About page"""
     return render_template('about.html')
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for deployment platforms"""
+    return jsonify({'status': 'healthy', 'service': 'pdfcrypto'}), 200
+
 @app.route('/api/generate-password')
 def generate_password():
     """Generate strong password recommendation"""
     try:
         length = int(request.args.get('length', 16))
+        length = max(8, min(32, length))  # Clamp between 8-32
         password = PasswordGenerator.generate_strong_password(length)
         return jsonify({'success': True, 'password': password})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        app.logger.error(f"Password generation error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to generate password'})
 
 @app.route('/api/encrypt', methods=['POST'])
 def encrypt_file():
     """Encrypt PDF file"""
+    temp_file = None
     try:
         # Validate file upload
         if 'file' not in request.files:
@@ -73,6 +87,9 @@ def encrypt_file():
         # Read file data
         file_data = file.read()
         
+        if len(file_data) == 0:
+            return jsonify({'success': False, 'error': 'File is empty'})
+        
         # Validate PDF header
         if not file_data.startswith(b'%PDF'):
             return jsonify({'success': False, 'error': 'Invalid PDF file format'})
@@ -85,13 +102,15 @@ def encrypt_file():
         encrypted_data = CryptoUtils.encrypt_file_with_header(file_data, rabbit_cipher)
         
         # Create temp file for download
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.enc')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.enc', dir='/tmp')
         temp_file.write(encrypted_data)
         temp_file.close()
         
         # Generate secure filename
         original_name = secure_filename(file.filename)
         encrypted_filename = f"{original_name.rsplit('.', 1)[0]}.enc"
+        
+        app.logger.info(f"Successfully encrypted file: {original_name}")
         
         return send_file(
             temp_file.name,
@@ -101,18 +120,20 @@ def encrypt_file():
         )
         
     except Exception as e:
+        app.logger.error(f"Encryption error: {e}")
         return jsonify({'success': False, 'error': f'Encryption failed: {str(e)}'})
     finally:
         # Clean up temp file
         try:
-            if 'temp_file' in locals():
+            if temp_file and os.path.exists(temp_file.name):
                 os.unlink(temp_file.name)
-        except:
-            pass
+        except Exception as cleanup_error:
+            app.logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
 
 @app.route('/api/decrypt', methods=['POST'])
 def decrypt_file():
     """Decrypt encrypted file"""
+    temp_file = None
     try:
         # Validate file upload
         if 'file' not in request.files:
@@ -133,6 +154,9 @@ def decrypt_file():
         # Read encrypted data
         encrypted_data = file.read()
         
+        if len(encrypted_data) == 0:
+            return jsonify({'success': False, 'error': 'File is empty'})
+        
         # Generate decryption key from password
         decryption_key = CryptoUtils.generate_key_from_password(password)
         
@@ -149,13 +173,15 @@ def decrypt_file():
             return jsonify({'success': False, 'error': 'Invalid password - decrypted data is not a valid PDF'})
         
         # Create temp file for download
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf', dir='/tmp')
         temp_file.write(decrypted_data)
         temp_file.close()
         
         # Generate filename
         original_name = secure_filename(file.filename)
         pdf_filename = f"{original_name.rsplit('.', 1)[0]}.pdf"
+        
+        app.logger.info(f"Successfully decrypted file: {original_name}")
         
         return send_file(
             temp_file.name,
@@ -165,18 +191,29 @@ def decrypt_file():
         )
         
     except Exception as e:
+        app.logger.error(f"Decryption error: {e}")
         return jsonify({'success': False, 'error': f'Decryption failed: {str(e)}'})
     finally:
         # Clean up temp file
         try:
-            if 'temp_file' in locals():
+            if temp_file and os.path.exists(temp_file.name):
                 os.unlink(temp_file.name)
-        except:
-            pass
+        except Exception as cleanup_error:
+            app.logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
 
 @app.errorhandler(413)
 def too_large(e):
     return jsonify({'success': False, 'error': 'File too large. Maximum size is 50MB.'}), 413
 
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('index.html'), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    app.logger.error(f"Server error: {e}")
+    return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=DEBUG, host='0.0.0.0', port=port)
